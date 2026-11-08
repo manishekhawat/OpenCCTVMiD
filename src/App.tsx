@@ -53,7 +53,9 @@ const Shell: React.FC = () => {
 export default function App() {
   return (
     <SafeAreaView style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={theme.bg} />
+      {/* RN 0.88 dropped StatusBar's backgroundColor for edge-to-edge; the
+          root SafeAreaView paints theme.bg behind it instead. */}
+      <StatusBar barStyle="light-content" />
       <CameraProvider>
         <Shell />
       </CameraProvider>
