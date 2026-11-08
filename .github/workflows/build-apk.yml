@@ -1,12 +1,16 @@
 name: Build APK
 
-# Produces an installable APK without any local toolchain.
-# Actions -> Build APK -> Run workflow. The APK lands under "Artifacts".
+# Produces an installable APK without any local toolchain, and publishes it
+# to the "latest" release so it can be downloaded directly on a phone —
+# Actions artifacts need a login and arrive as a .zip Android can't install.
 
 on:
   workflow_dispatch:
   push:
     branches: [main, master]
+
+permissions:
+  contents: write # required to create/replace the release
 
 jobs:
   apk:
@@ -51,12 +55,38 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-      - name: Name the artifact
-        id: name
-        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Stage the APK
+        id: stage
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          SRC=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          test -n "$SRC" || { echo "no APK produced"; exit 1; }
+          cp "$SRC" "opencctvmid-$SHA.apk"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "apk=opencctvmid-$SHA.apk" >> "$GITHUB_OUTPUT"
+          ls -lh "opencctvmid-$SHA.apk"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: opencctvmid-${{ steps.name.outputs.sha }}
-          path: android/app/build/outputs/apk/release/*.apk
+          name: opencctvmid-${{ steps.stage.outputs.sha }}
+          path: ${{ steps.stage.outputs.apk }}
           if-no-files-found: error
+
+      # A rolling "latest" release: one stable URL that always serves the most
+      # recent build, so the download link never goes stale.
+      - name: Publish to the latest release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest \
+            "${{ steps.stage.outputs.apk }}" \
+            --title "Latest build (${{ steps.stage.outputs.sha }})" \
+            --notes "Debug-signed build of ${{ steps.stage.outputs.sha }}.
+
+          Android will warn about installing from an unknown source — this APK
+          is signed with the standard Android debug key, not a release key.
+
+          The camera must be on the same Wi-Fi as the phone, and you need the
+          device token. See the README."
