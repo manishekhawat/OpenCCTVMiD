@@ -17,3 +17,6 @@ __pycache__/
 
 # Probe output — reveals your camera's layout
 findings.json
+
+# Metro export output
+dist/
