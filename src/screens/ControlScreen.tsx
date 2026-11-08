@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { useCamera } from '../cameraStore';
+import { describe, useCamera } from '../cameraStore';
 import { type Candidate, type Direction, signatureOf } from '../commands';
 import { theme } from '../theme';
 
@@ -67,10 +67,7 @@ export const ControlScreen: React.FC = () => {
     const run = async () => {
       const result = await camera.call(c.method, c.params);
       if (!result) return;
-      Alert.alert(
-        signatureOf(c),
-        result.error ? String(JSON.stringify(result.error)) : String(JSON.stringify(result.value)),
-      );
+      Alert.alert(signatureOf(c), describe(result.error ?? result.value));
     };
     if (c.destructive) {
       Alert.alert(c.label, `${signatureOf(c)}\n\nThis cannot be undone.`, [

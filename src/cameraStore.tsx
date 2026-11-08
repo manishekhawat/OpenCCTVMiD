@@ -56,6 +56,22 @@ export const useCamera = (): CameraState => {
   return value;
 };
 
+/**
+ * JSON.stringify(new Error('boom')) is "{}" — Error's own fields aren't
+ * enumerable. Logging errors that way threw the reason away and showed empty
+ * braces, which is exactly the information needed when a call fails.
+ */
+export const describe = (value: unknown): string => {
+  if (value === undefined) return 'ok';
+  if (value instanceof Error) return value.message;
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
 const explain = (e: unknown): string => {
   const text = String(e);
   if (text.includes('checksum')) {
@@ -129,8 +145,13 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setConnected(true);
 
         if (info.error) {
-          setConnectionError('Handshake worked but miIO.info failed — the token is probably wrong for this camera.');
-          note('connect', String(info.error), false);
+          // The handshake needs no token, so reaching here only proves the
+          // camera is online. miIO.info is the first call that actually uses
+          // the token, which makes it the real credential check.
+          setConnectionError(
+            `The camera is reachable, but miIO.info failed:\n\n${describe(info.error)}`,
+          );
+          note('connect', describe(info.error), false);
         } else {
           setDeviceInfo(info.value as Record<string, any>);
           note('connect', `device_id ${dev.deviceId}`, true);
@@ -169,7 +190,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           void persist(ip, token, next);
           return next;
         });
-        note(signature, JSON.stringify(result.error ?? result.value), !result.error);
+        note(signature, describe(result.error ?? result.value), !result.error);
         return result;
       } catch (e) {
         const status: MethodStatus = e instanceof MiioError && e.methodAbsent ? 'absent' : 'exists';
@@ -179,7 +200,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           return next;
         });
         const detail = e instanceof MiioError ? e.detail : e;
-        note(signature, JSON.stringify(detail), false);
+        note(signature, describe(detail), false);
         return { method, params, error: detail, elapsedMs: 0 };
       }
     },

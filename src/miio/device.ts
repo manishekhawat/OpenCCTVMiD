@@ -113,11 +113,23 @@ export class MiioDevice {
     });
   }
 
-  private waitFor(match: (data: Uint8Array) => boolean): Promise<Uint8Array> {
+  /**
+   * Waits for a datagram the caller accepts.
+   *
+   * `onTimeout` lets the caller explain the silence. That matters because a
+   * wrong token and an unreachable camera look identical from here: the
+   * replies arrive either way, but a bad token makes every one of them fail
+   * its checksum and get discarded. Reporting both as "no response" sends you
+   * hunting the network when the token is the problem.
+   */
+  private waitFor(
+    match: (data: Uint8Array) => boolean,
+    onTimeout?: () => Error,
+  ): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.listeners.delete(listener);
-        reject(new Error(`no response from ${this.ip}`));
+        reject(onTimeout ? onTimeout() : new Error(`no response from ${this.ip}`));
       }, this.timeoutMs);
 
       const listener: Listener = data => {
@@ -159,16 +171,46 @@ export class MiioDevice {
         // next one, so match on the request id rather than taking the first
         // datagram that shows up.
         let decoded: Record<string, any> | null = null;
-        const reply = this.waitFor(data => {
-          try {
-            const body = this.codec.read(data);
-            if (!body || body.id !== id) return false;
-            decoded = body;
-            return true;
-          } catch {
-            return false;
-          }
-        });
+        let packetsSeen = 0;
+        let checksumFailures = 0;
+        let wrongId = 0;
+
+        const reply = this.waitFor(
+          data => {
+            packetsSeen++;
+            try {
+              const body = this.codec.read(data);
+              if (!body) return false; // a hello reply
+              if (body.id !== id) {
+                wrongId++;
+                return false;
+              }
+              decoded = body;
+              return true;
+            } catch (e) {
+              if (String(e).includes('checksum')) checksumFailures++;
+              return false;
+            }
+          },
+          () => {
+            if (checksumFailures > 0) {
+              return new Error(
+                `the camera replied ${checksumFailures} time(s) but every reply failed its ` +
+                  `checksum — the token is wrong for this device`,
+              );
+            }
+            if (wrongId > 0) {
+              return new Error(
+                `${wrongId} reply/replies arrived for a different request id — the camera is ` +
+                  `lagging behind; try again more slowly`,
+              );
+            }
+            if (packetsSeen > 0) {
+              return new Error(`${packetsSeen} unreadable packet(s) arrived from ${this.ip}`);
+            }
+            return new Error(`${method}: no reply from ${this.ip} within ${this.timeoutMs}ms`);
+          },
+        );
 
         socket.send(Buffer.from(packet), 0, packet.length, this.port, this.ip, () => {});
         await reply;
