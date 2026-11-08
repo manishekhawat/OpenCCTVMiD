@@ -120,6 +120,64 @@ separators.
 
 ---
 
+## What this camera actually answers
+
+Measured against real hardware: `isa.camera.df3`, firmware `5.5.1_1025`,
+device id `59549501`, on 2026-11-08. Everything below is observed, not
+inferred from the spec.
+
+**Methods that reply**
+
+| Method | Result |
+|---|---|
+| `miIO.info` | works — model and firmware |
+| `get_prop` | works |
+| `set_cruise` | returns `"ok"` |
+| `set_track` | returns `"ok"` |
+
+Every other method in `commands.ts` — all the PTZ candidates, `set_video`,
+`set_power`, `set_night_mode`, `set_flip`, the motion-detection family,
+storage — returns **nothing at all**. Not `unsupported_method`: silence. A
+conforming miIO device answers an unknown method with an error, so this
+firmware's behaviour means "no reply" cannot be distinguished from a dropped
+packet without the handshake as a control.
+
+**Properties that return a value**
+
+| Property | Value seen |
+|---|---|
+| `power` | `on` |
+| `night_mode` | `0` |
+| `sdcard_status` | `0` |
+
+`light`, `flip`, `watermark` and `motion_record` are recognised but return
+null. `cruise` and `track` return nothing at all — they are writable but not
+readable.
+
+**`get_prop` drops unknown names instead of padding the reply.** Asking for
+`["cruise","track","power","night_mode"]` returns `["on","0"]` — two values
+for four names, which are `power` and `night_mode`. Any code that zips the
+request against the response will mis-assign every value after the first
+gap. Query one property per call, or match by elimination.
+
+**`set_cruise("on")` does not move the camera.** It returns `"ok"` and the
+motors stay still. The acknowledgement means the firmware parsed the write,
+not that anything acted on it.
+
+### The conclusion
+
+PTZ is not reachable over miIO on this firmware. Pan/tilt rides the same
+proprietary P2P channel as the video, which is why the Mi Home plugin can
+drive the motors and a local client cannot. The published MIoT spec, which
+lists only a power switch and P2P stream start/stop, understates the surface
+slightly — `get_prop`, `set_cruise` and `set_track` all answer — but not in
+any way that reaches the motors.
+
+Custom firmware remains the only route to local PTZ and RTSP, and the
+install flashes the camera's internal flash with no documented way back.
+
+---
+
 ## How the protocol works
 
 ```
