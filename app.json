@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "OpenCCTVMiD",
+    "slug": "opencctvmid",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "com.manishekhawat.opencctvmid",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.CHANGE_WIFI_MULTICAST_STATE"
+      ]
+    },
+    "plugins": ["expo-dev-client"]
+  }
+}

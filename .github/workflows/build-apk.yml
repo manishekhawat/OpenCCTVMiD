@@ -1,8 +1,7 @@
 name: Build APK
 
 # Produces an installable APK without any local toolchain.
-# Push this repo to GitHub, then: Actions -> Build APK -> Run workflow.
-# The APK lands under "Artifacts" on the run page.
+# Actions -> Build APK -> Run workflow. The APK lands under "Artifacts".
 
 on:
   workflow_dispatch:
@@ -15,57 +14,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+      - uses: android-actions/setup-android@v3
 
-      # The repo ships lib/, test/ and pubspec.yaml only. This generates the
-      # android/ host project around them without touching existing files.
-      - name: Scaffold the Android host project
-        run: flutter create --platforms=android --project-name dafang_ctl .
+      - name: Install dependencies
+        run: npm ci || npm install
 
-      - name: Grant network permissions
-        run: |
-          MANIFEST=android/app/src/main/AndroidManifest.xml
-          python3 - "$MANIFEST" <<'PY'
-          import sys, pathlib
-          path = pathlib.Path(sys.argv[1])
-          text = path.read_text()
-          perms = (
-              '    <uses-permission android:name="android.permission.INTERNET"/>\n'
-              '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n'
-          )
-          if "android.permission.INTERNET" not in text:
-              text = text.replace("<manifest", "<manifest", 1)
-              marker = text.index(">", text.index("<manifest")) + 1
-              text = text[:marker] + "\n" + perms + text[marker:]
-              path.write_text(text)
-              print("permissions added")
-          else:
-              print("permissions already present")
-          PY
-          cat android/app/src/main/AndroidManifest.xml
+      - name: Typecheck
+        run: npx tsc --noEmit
 
-      - run: flutter pub get
+      - name: Protocol tests
+        run: npx jest --ci
 
-      - name: Analyze
-        run: flutter analyze --no-fatal-infos
-        continue-on-error: true
-
-      - name: Test the protocol layer
-        run: flutter test
+      # The repo holds src/ only. Expo generates the android/ host project,
+      # wires the permissions from app.json, and autolinks react-native-udp
+      # and async-storage.
+      - name: Generate the Android project
+        run: npx expo prebuild --platform android --no-install
 
       - name: Build
-        run: flutter build apk --release
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Name the artifact
+        id: name
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dafang-ctl-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: opencctvmid-${{ steps.name.outputs.sha }}
+          path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error

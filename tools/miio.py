@@ -113,7 +113,11 @@ def parse_header(buf: bytes) -> Header:
 
 
 def build(token: bytes, device_id: int, stamp: int, payload: dict | None) -> bytes:
-    body = b"" if payload is None else encrypt(token, json.dumps(payload).encode())
+    # Compact separators, matching JavaScript's JSON.stringify, so the Python
+    # and TypeScript clients emit byte-identical packets and can be verified
+    # against each other.
+    blob = json.dumps(payload, separators=(",", ":")).encode()
+    body = b"" if payload is None else encrypt(token, blob)
     head = struct.pack(">HHIII", MAGIC, HEADER_LEN + len(body), 0, device_id, stamp)
     checksum = hashlib.md5(head + token + body).digest()
     return head + checksum + body

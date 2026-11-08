@@ -1,0 +1,24 @@
+{
+  "token": "5541634749665859696a30414c4e5537",
+  "key": "bdb3185c108259e85995caa83e588107",
+  "iv": "59223d17547f40af55f2246e433826fc",
+  "encrypt": {
+    "empty": {
+      "plain": "",
+      "cipher": "d646821b7ddfea77c916af820eaa15c0"
+    },
+    "one": {
+      "plain": "61",
+      "cipher": "4c1afabdb81d13a6300a31dc608846e3"
+    },
+    "block": {
+      "plain": "78787878787878787878787878787878",
+      "cipher": "beac6f1b880ad7b262ea0429d2f07671ab0d73f92e59b3f7411047f58ff35f26"
+    },
+    "json": {
+      "plain": "7b226964223a312c226d6574686f64223a226765745f70726f70222c22706172616d73223a5b22706f776572225d7d",
+      "cipher": "ef5199d7adfe3d491c055cf66925ce34989ce85646c17c65caf4ea2a2b384fb6dadfcfefbf3fb0f214363ec98e4aa15c"
+    }
+  },
+  "packet": "213100500000000001a2b3c40000007b1f017874195eefff97e0b0c2e01aaaad3a7c707ff177b363537b014e05b2f359df69ace8f64f9947449d1562d834c9e601945b016be3cc614a3369323c64e23d"
+}
