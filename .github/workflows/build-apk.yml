@@ -72,16 +72,22 @@ jobs:
             [ "$attempt" = 1 ] && { echo "retrying in 60s"; sleep 60; }
           done
 
-          if command -v gradle >/dev/null; then
-            echo "::group::Falling back to the runner's Gradle"
-            gradle --version
-            gradle assembleRelease --no-daemon && exit 0
-            echo "::endgroup::"
-          else
-            echo "no system gradle to fall back to"
-          fi
+          # A different Gradle version is not a fallback: the runner's 9.8.2
+          # fails compiling Expo's and React Native's own Gradle plugins,
+          # which are built against the 9.4.1 API. The version is fixed, so
+          # the only alternative is another source for the same archive.
+          PROPS=gradle/wrapper/gradle-wrapper.properties
+          CURRENT=$(grep -oP 'distributionUrl=\K.*' "$PROPS" | sed 's#\\##g')
+          VERSION=$(basename "$CURRENT" | sed 's/gradle-\(.*\)-bin.zip/\1/')
+          MIRROR="https://downloads.gradle-dn.com/distributions/gradle-${VERSION}-bin.zip"
 
-          echo "build failed via both the wrapper and the system Gradle"
+          echo "::group::Retrying via the CDN directly: $MIRROR"
+          sed -i "s#^distributionUrl=.*#distributionUrl=$(echo "$MIRROR" | sed 's#:#\\\\:#g')#" "$PROPS"
+          cat "$PROPS"
+          ./gradlew assembleRelease --no-daemon && exit 0
+          echo "::endgroup::"
+
+          echo "build failed: services.gradle.org and its CDN are both unreachable"
           exit 1
 
       - name: Stage the APK
