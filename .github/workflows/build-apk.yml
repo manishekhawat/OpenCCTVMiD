@@ -49,11 +49,25 @@ jobs:
       - name: Generate the Android project
         run: npx expo prebuild --platform android --no-install
 
+      # The wrapper fetches the Gradle distribution from services.gradle.org on
+      # first run, and that has returned 504 mid-build. Retry rather than fail
+      # the whole job on someone else's outage.
       - name: Build
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          for attempt in 1 2 3; do
+            echo "::group::Gradle attempt $attempt"
+            if ./gradlew assembleRelease --no-daemon; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "attempt $attempt failed; retrying in 30s"
+            sleep 30
+          done
+          echo "all three attempts failed"
+          exit 1
 
       - name: Stage the APK
         id: stage
