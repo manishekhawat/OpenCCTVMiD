@@ -1,0 +1,21 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+pubspec.lock
+*.iml
+
+# Generated host projects (CI runs `flutter create --platforms=android .`)
+/android/
+/ios/
+/linux/
+/macos/
+/windows/
+/web/
+
+# Python
+__pycache__/
+*.pyc
+
+# Probe output — may reveal your camera's layout
+findings.json
