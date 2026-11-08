@@ -13,6 +13,7 @@ import {
   verifiedProps,
 } from './commands';
 import { MiioDevice, MiioError, type MiioResult } from './miio/device';
+import { isEmptyResult } from './miio/result';
 
 /**
  * 'ignored' rather than 'silent' or 'failed': this firmware returns nothing
@@ -21,7 +22,7 @@ import { MiioDevice, MiioError, type MiioResult } from './miio/device';
  * the network dropping the packet — miIO.info answering in the same sweep is
  * what rules the network out.
  */
-export type MethodStatus = 'untested' | 'works' | 'exists' | 'absent' | 'ignored';
+export type MethodStatus = 'untested' | 'works' | 'empty' | 'exists' | 'absent' | 'ignored';
 
 export interface LogEntry {
   method: string;
@@ -59,6 +60,11 @@ export interface CameraState {
   refreshState(): Promise<void>;
   confirmed: Candidate[];
 }
+
+const classify = (result: { error?: unknown; value?: unknown }): MethodStatus => {
+  if (result.error) return 'ignored';
+  return isEmptyResult(result.value) ? 'empty' : 'works';
+};
 
 const Ctx = createContext<CameraState | null>(null);
 
@@ -232,7 +238,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const signature = `${method}(${params.map(p => JSON.stringify(p)).join(', ')})`;
       try {
         const result = await dev.send(method, params);
-        const status: MethodStatus = result.error ? 'ignored' : 'works';
+        const status: MethodStatus = classify(result);
         setFindings(prev => {
           const next = { ...prev, [signature]: status };
           void persist(ip, token, next);
@@ -324,7 +330,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const sig = signatureOf(c);
         try {
           const result = await dev.send(c.method, c.params, 0);
-          results[sig] = result.error ? 'ignored' : 'works';
+          results[sig] = classify(result);
         } catch (e) {
           results[sig] = e instanceof MiioError && e.methodAbsent ? 'absent' : 'exists';
         }

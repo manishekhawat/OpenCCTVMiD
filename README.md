@@ -164,6 +164,16 @@ gap. Query one property per call, or match by elimination.
 motors stay still. The acknowledgement means the firmware parsed the write,
 not that anything acted on it.
 
+**MIoT is a dead end locally.** `get_properties` is accepted for any
+siid/piid and returns `[]` every time — including siid 2 / piid 1, the one
+property the published spec does list. The RPC envelope succeeds while the
+payload is empty, so judging a call by whether it replied marked thirteen
+meaningless grid calls as working. `action` returns nothing at all for every
+siid/aiid tried.
+
+A reply is not a result. `isEmptyResult` in `src/miio/result.ts` encodes
+that, with the observed replies as its test cases.
+
 ### The conclusion
 
 PTZ is not reachable over miIO on this firmware. Pan/tilt rides the same

@@ -9,7 +9,7 @@ export const ProbeScreen: React.FC = () => {
   // Render from findings rather than from the candidate list: the MIoT grid
   // is generated at sweep time and isn't in candidateCommands, so filtering by
   // it would discover a hit and then hide it.
-  const rank: Record<string, number> = { works: 0, exists: 1, ignored: 2, absent: 3, untested: 4 };
+  const rank: Record<string, number> = { works: 0, exists: 1, empty: 2, ignored: 3, absent: 4, untested: 5 };
   const tested = Object.entries(camera.findings).sort(
     (a, b) => (rank[a[1]] ?? 9) - (rank[b[1]] ?? 9) || a[0].localeCompare(b[0]),
   );
@@ -23,7 +23,9 @@ export const ProbeScreen: React.FC = () => {
         This firmware answers nothing at all for methods it doesn't implement, where a conforming
         miIO device would say "unsupported_method". So "ignored" means the camera declined, not
         that the packet was lost — miIO.info answering in the same sweep is what rules out the
-        network.
+        network.{'\n\n'}
+        "empty" is the trap: get_properties is accepted for any siid/piid and returns [] every
+        time. A reply is not a result, so a call only counts as working when it carries a value.
       </Text>
 
       {camera.probing ? (
@@ -80,7 +82,10 @@ export const ProbeScreen: React.FC = () => {
               <View key={sig} style={s.row}>
                 <View style={[s.statusDot, { backgroundColor: color }]} />
                 <Text
-                  style={[s.signature, status === 'absent' && s.signatureDim]}
+                  style={[
+                    s.signature,
+                    (status === 'absent' || status === 'empty') && s.signatureDim,
+                  ]}
                   numberOfLines={1}>
                   {sig}
                 </Text>
