@@ -16,7 +16,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - uses: actions/setup-java@v4
@@ -24,7 +24,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      # ubuntu-latest ships the Android SDK at $ANDROID_SDK_ROOT with its
+      # licences already accepted; android-actions/setup-android re-runs the
+      # interactive licence prompt and fails on it.
+      - name: Show the preinstalled Android SDK
+        run: echo "$ANDROID_SDK_ROOT" && ls "$ANDROID_SDK_ROOT/platforms" || true
 
       - name: Install dependencies
         run: npm ci || npm install
