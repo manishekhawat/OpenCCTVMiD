@@ -1,66 +1,28 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { describe, useCamera } from '../cameraStore';
-import { type Candidate, type Direction, signatureOf } from '../commands';
+import { type Candidate, signatureOf, verifiedCommands, verifiedProps } from '../commands';
 import { theme } from '../theme';
 
-const PtzPad: React.FC = () => {
-  const camera = useCamera();
-  const [busy, setBusy] = useState<Direction | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const go = async (direction: Direction) => {
-    setBusy(direction);
-    setMessage(null);
-    const ok = await camera.nudge(direction);
-    setBusy(null);
-    if (!ok) {
-      setMessage(
-        `No motor command accepted for "${direction}". Run the probe first, or this firmware may keep PTZ on the P2P channel only.`,
-      );
-    }
-  };
-
-  const Btn: React.FC<{ direction: Direction; glyph: string }> = ({ direction, glyph }) => {
-    const known = camera.preferredPtz(direction) !== null;
-    return (
-      <Pressable
-        style={[s.padButton, known && s.padKnown, busy !== null && s.padBusy]}
-        disabled={busy !== null}
-        onPress={() => go(direction)}>
-        {busy === direction ? (
-          <ActivityIndicator color={theme.accent} />
-        ) : (
-          <Text style={s.padGlyph}>{glyph}</Text>
-        )}
-      </Pressable>
-    );
-  };
-
-  return (
-    <View style={s.pad}>
-      <Btn direction="up" glyph="▲" />
-      <View style={s.padRow}>
-        <Btn direction="left" glyph="◀" />
-        <View style={s.padSpacer} />
-        <Btn direction="right" glyph="▶" />
-      </View>
-      <Btn direction="down" glyph="▼" />
-      {message && <Text style={s.padMessage}>{message}</Text>}
-    </View>
-  );
+const PROP_LABELS: Record<string, (v: string) => string> = {
+  power: v => (v === 'on' ? 'On' : v === 'off' ? 'Off' : v),
+  night_mode: v => ({ '0': 'Off', '1': 'On', '2': 'Auto' }[v] ?? v),
+  sdcard_status: v => ({ '0': 'None', '1': 'Ready', '2': 'Error' }[v] ?? v),
 };
 
 export const ControlScreen: React.FC = () => {
   const camera = useCamera();
 
-  const groups = useMemo(() => {
-    const map = new Map<string, Candidate[]>();
-    for (const c of camera.confirmed) {
-      map.set(c.group, [...(map.get(c.group) ?? []), c]);
-    }
-    return Array.from(map.entries());
+  useEffect(() => {
+    void camera.refreshState();
+    // Once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const discovered = useMemo(() => {
+    const seen = new Set(verifiedCommands.map(signatureOf));
+    return camera.confirmed.filter(c => !seen.has(signatureOf(c)));
   }, [camera.confirmed]);
 
   const fire = (c: Candidate) => {
@@ -68,6 +30,7 @@ export const ControlScreen: React.FC = () => {
       const result = await camera.call(c.method, c.params);
       if (!result) return;
       Alert.alert(signatureOf(c), describe(result.error ?? result.value));
+      void camera.refreshState();
     };
     if (c.destructive) {
       Alert.alert(c.label, `${signatureOf(c)}\n\nThis cannot be undone.`, [
@@ -96,50 +59,78 @@ export const ControlScreen: React.FC = () => {
         </Pressable>
       </View>
 
-      <PtzPad />
+      <View style={s.stateHead}>
+        <Text style={s.groupLabel}>STATE</Text>
+        <Pressable onPress={() => camera.refreshState()} hitSlop={10}>
+          {camera.refreshing ? (
+            <ActivityIndicator size="small" color={theme.accent} />
+          ) : (
+            <Text style={s.link}>Refresh</Text>
+          )}
+        </Pressable>
+      </View>
 
-      {camera.confirmed.length === 0 ? (
-        <View style={s.card}>
-          <Text style={s.cardTitle}>No commands confirmed yet</Text>
-          <Text style={s.cardBody}>
-            Xiaomi never published the method list for this camera, so the app has to ask yours what
-            it understands. Run the sweep on the Probe tab; whatever answers shows up here.
-          </Text>
-        </View>
-      ) : (
-        groups.map(([group, items]) => (
-          <View key={group} style={s.group}>
-            <Text style={s.groupLabel}>{group.toUpperCase()}</Text>
-            <View style={s.chips}>
-              {items.map(c => (
-                <Pressable
-                  key={signatureOf(c)}
-                  style={[s.chip, c.destructive && s.chipDanger]}
-                  onPress={() => fire(c)}>
-                  <Text style={[s.chipText, c.destructive && s.chipDangerText]}>
-                    {c.destructive ? `⚠ ${c.label}` : c.label}
-                  </Text>
-                </Pressable>
-              ))}
+      <View style={s.stateCard}>
+        {verifiedProps.map(({ name, label }) => {
+          const raw = camera.liveProps[name];
+          const shown = raw === undefined ? '—' : (PROP_LABELS[name]?.(raw) ?? raw);
+          return (
+            <View key={name} style={s.stateRow}>
+              <Text style={s.stateLabel}>{label}</Text>
+              <Text style={[s.stateValue, raw === undefined && s.stateMissing]}>{shown}</Text>
             </View>
-          </View>
-        ))
-      )}
+          );
+        })}
+      </View>
+      <Text style={s.note}>
+        Read one property per call — this firmware omits unknown names from a batched reply instead
+        of padding it, so batching silently mis-assigns values.
+      </Text>
 
-      {Object.keys(camera.liveProps).length > 0 && (
-        <View style={s.group}>
-          <Text style={s.groupLabel}>REPORTED STATE</Text>
+      <Text style={[s.groupLabel, s.spaced]}>CONFIRMED COMMANDS</Text>
+      <View style={s.chips}>
+        {verifiedCommands.map(c => (
+          <Pressable key={signatureOf(c)} style={s.chip} onPress={() => fire(c)}>
+            <Text style={s.chipText}>{c.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={s.note}>
+        Both return "ok". Cruise was observed not to move the motors, so the acknowledgement means
+        the write was parsed, not that anything acted on it.
+      </Text>
+
+      {discovered.length > 0 && (
+        <>
+          <Text style={[s.groupLabel, s.spaced]}>FOUND BY PROBE</Text>
           <View style={s.chips}>
-            {Object.entries(camera.liveProps).map(([k, v]) => (
-              <View key={k} style={s.propChip}>
-                <Text style={s.propText}>
-                  {k}: {v}
+            {discovered.map(c => (
+              <Pressable
+                key={signatureOf(c)}
+                style={[s.chip, c.destructive && s.chipDanger]}
+                onPress={() => fire(c)}>
+                <Text style={[s.chipText, c.destructive && s.chipDangerText]}>
+                  {c.destructive ? `⚠ ${c.label}` : c.label}
                 </Text>
-              </View>
+              </Pressable>
             ))}
           </View>
-        </View>
+        </>
       )}
+
+      <View style={s.limits}>
+        <Text style={s.limitsTitle}>What this camera won't do locally</Text>
+        <Text style={s.limitsBody}>
+          No pan or tilt. The motors are driven over Xiaomi's P2P channel, the same one carrying
+          the video, so Mi Home can move the camera and a local client cannot. Every movement
+          method — motor_move, set_motor, ptz_move, presets — was tried and returned nothing.
+          {'\n\n'}
+          No live video, for the same reason: the stream is P2P, not RTSP.
+          {'\n\n'}
+          Custom firmware is the only route to either, and its install writes the camera's internal
+          flash with no documented way back.
+        </Text>
+      </View>
     </ScrollView>
   );
 };
@@ -154,29 +145,27 @@ const s = StyleSheet.create({
   meta: { color: theme.dim, fontSize: 12, marginTop: 2 },
   link: { color: theme.accent, fontSize: 13 },
 
-  pad: { alignItems: 'center', marginBottom: 28 },
-  padRow: { flexDirection: 'row', alignItems: 'center' },
-  padSpacer: { width: 56 },
-  padButton: {
-    width: 64,
-    height: 64,
-    margin: 4,
-    borderRadius: 16,
-    backgroundColor: theme.surfaceAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  padKnown: { backgroundColor: theme.accentDim },
-  padBusy: { opacity: 0.6 },
-  padGlyph: { color: theme.text, fontSize: 20 },
-  padMessage: { color: theme.bad, fontSize: 12, textAlign: 'center', marginTop: 12, lineHeight: 18 },
-
-  card: { backgroundColor: theme.surface, borderRadius: 12, padding: 16 },
-  cardTitle: { color: theme.text, fontSize: 15, fontWeight: '600', marginBottom: 8 },
-  cardBody: { color: theme.dim, fontSize: 13, lineHeight: 20 },
-
-  group: { marginBottom: 22 },
+  stateHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   groupLabel: { color: theme.dim, fontSize: 11, letterSpacing: 1.2, marginBottom: 10 },
+  spaced: { marginTop: 26 },
+  stateCard: {
+    backgroundColor: theme.surface,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  stateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 13,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.border,
+  },
+  stateLabel: { color: theme.text, fontSize: 15 },
+  stateValue: { color: theme.accent, fontSize: 15, fontWeight: '600' },
+  stateMissing: { color: theme.faint, fontWeight: '400' },
+  note: { color: theme.faint, fontSize: 11, lineHeight: 17, marginTop: 10 },
+
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     backgroundColor: theme.surfaceAlt,
@@ -187,12 +176,14 @@ const s = StyleSheet.create({
   chipDanger: { backgroundColor: '#3A1618' },
   chipText: { color: theme.text, fontSize: 13 },
   chipDangerText: { color: '#FFC9CC' },
-  propChip: {
+
+  limits: {
+    marginTop: 32,
+    padding: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: theme.border,
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
   },
-  propText: { color: theme.dim, fontSize: 12, fontFamily: theme.mono },
+  limitsTitle: { color: theme.text, fontSize: 14, fontWeight: '600', marginBottom: 10 },
+  limitsBody: { color: theme.dim, fontSize: 12, lineHeight: 19 },
 });

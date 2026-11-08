@@ -17,7 +17,7 @@ export const theme = {
 export const statusColor: Record<string, string> = {
   works: theme.good,
   exists: theme.warn,
-  silent: '#FB923C',
+  ignored: '#FB923C',
   absent: theme.faint,
   untested: theme.faint,
 };

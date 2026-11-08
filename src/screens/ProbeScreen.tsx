@@ -1,22 +1,29 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useCamera } from '../cameraStore';
-import { candidateCommands, signatureOf } from '../commands';
 import { statusColor, theme } from '../theme';
 
 export const ProbeScreen: React.FC = () => {
   const camera = useCamera();
-  const tested = candidateCommands.filter(c => camera.findings[signatureOf(c)]);
+  // Render from findings rather than from the candidate list: the MIoT grid
+  // is generated at sweep time and isn't in candidateCommands, so filtering by
+  // it would discover a hit and then hide it.
+  const rank: Record<string, number> = { works: 0, exists: 1, ignored: 2, absent: 3, untested: 4 };
+  const tested = Object.entries(camera.findings).sort(
+    (a, b) => (rank[a[1]] ?? 9) - (rank[b[1]] ?? 9) || a[0].localeCompare(b[0]),
+  );
+  const answered = tested.filter(([, v]) => v === 'works' || v === 'exists').length;
   const progress = camera.probeTotal === 0 ? 0 : camera.probeDone / camera.probeTotal;
 
   return (
     <ScrollView style={s.page} contentContainerStyle={s.content}>
       <Text style={s.title}>Capability probe</Text>
       <Text style={s.body}>
-        The sweep calls each candidate once and reads the camera's reply. "unsupported_method" means
-        the name is wrong; "invalid params" is the useful answer — it proves the method exists and
-        only the arguments were off.
+        This firmware answers nothing at all for methods it doesn't implement, where a conforming
+        miIO device would say "unsupported_method". So "ignored" means the camera declined, not
+        that the packet was lost — miIO.info answering in the same sweep is what rules out the
+        network.
       </Text>
 
       {camera.probing ? (
@@ -29,14 +36,26 @@ export const ProbeScreen: React.FC = () => {
           </Text>
         </View>
       ) : (
-        <Pressable style={s.button} onPress={() => camera.runProbe()}>
-          <Text style={s.buttonText}>Run the sweep</Text>
-        </Pressable>
-      )}
+        <>
+          <Pressable style={s.button} onPress={() => camera.runProbe()}>
+            <Text style={s.buttonText}>Run the sweep</Text>
+          </Pressable>
+          <Text style={s.help}>
+            Reads every candidate property one at a time, then every known method, then a MIoT
+            siid/piid grid — the published spec for this model omits get_prop and set_cruise, both
+            of which answer, so it can't be trusted to be complete.
+          </Text>
 
-      <Text style={s.help}>
-        Takes about a minute. Destructive methods such as sdcard_format are listed but never fired.
-      </Text>
+          <Pressable style={s.dangerButton} onPress={() => confirmActions(camera.runProbe)}>
+            <Text style={s.dangerText}>Also sweep MIoT actions</Text>
+          </Pressable>
+          <Text style={s.help}>
+            Actions invoke rather than read. On a device whose spec is already known to be
+            incomplete, there is no way to know what an unlisted action does before calling it — a
+            factory reset would look like any other. Off by default for that reason.
+          </Text>
+        </>
+      )}
 
       {Object.keys(camera.liveProps).length > 0 && (
         <>
@@ -52,10 +71,10 @@ export const ProbeScreen: React.FC = () => {
 
       {tested.length > 0 && (
         <>
-          <Text style={s.sectionLabel}>RESULTS</Text>
-          {tested.map(c => {
-            const sig = signatureOf(c);
-            const status = camera.findings[sig];
+          <Text style={s.sectionLabel}>
+            RESULTS — {answered} ANSWERED OF {tested.length}
+          </Text>
+          {tested.map(([sig, status]) => {
             const color = statusColor[status] ?? theme.faint;
             return (
               <View key={sig} style={s.row}>
@@ -75,6 +94,17 @@ export const ProbeScreen: React.FC = () => {
   );
 };
 
+const confirmActions = (run: (includeDestructive: boolean) => void) =>
+  Alert.alert(
+    'Sweep MIoT actions?',
+    'This calls every action slot in the grid. Unlisted actions are undocumented, and one of ' +
+      'them could reset or reconfigure the camera. Only do this if you accept that risk.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sweep anyway', style: 'destructive', onPress: () => run(true) },
+    ],
+  );
+
 const s = StyleSheet.create({
   page: { flex: 1, backgroundColor: theme.bg },
   content: { padding: 16, paddingBottom: 40 },
@@ -82,6 +112,15 @@ const s = StyleSheet.create({
   body: { color: theme.dim, fontSize: 13, lineHeight: 20, marginBottom: 20 },
   button: { backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 15, alignItems: 'center' },
   buttonText: { color: '#00201E', fontSize: 16, fontWeight: '700' },
+  dangerButton: {
+    marginTop: 20,
+    borderRadius: 10,
+    paddingVertical: 13,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#5A2A2E',
+  },
+  dangerText: { color: '#FFC9CC', fontSize: 14 },
   progressBlock: { marginVertical: 8 },
   track: { height: 4, backgroundColor: theme.surfaceAlt, borderRadius: 2, overflow: 'hidden' },
   fill: { height: 4, backgroundColor: theme.accent },

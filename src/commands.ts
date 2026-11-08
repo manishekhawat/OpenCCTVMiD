@@ -96,6 +96,70 @@ export const candidateCommands: Candidate[] = [
   { method: 'miIO.info', params: [], label: 'Device info', group: 'Info' },
 ];
 
+/**
+ * Confirmed against isa.camera.df3 on firmware 5.5.1_1025, 2026-11-08.
+ *
+ * These are the only properties observed to return a value. They are read one
+ * per call on purpose: get_prop omits unknown names from the reply instead of
+ * padding it, so asking for four names and getting two back leaves no way to
+ * tell which two they were.
+ */
+export const verifiedProps: { name: string; label: string }[] = [
+  { name: 'power', label: 'Camera' },
+  { name: 'night_mode', label: 'Night mode' },
+  { name: 'sdcard_status', label: 'SD card' },
+];
+
+/**
+ * The only writes the camera acknowledges. It returns "ok" for both — though
+ * set_cruise("on") was observed not to move the motors, so the ack means the
+ * write was parsed, not that anything acted on it.
+ */
+export const verifiedCommands: Candidate[] = [
+  { method: 'set_cruise', params: ['on'], label: 'Cruise on', group: 'Confirmed' },
+  { method: 'set_cruise', params: ['off'], label: 'Cruise off', group: 'Confirmed' },
+  { method: 'set_track', params: ['on'], label: 'Track on', group: 'Confirmed' },
+  { method: 'set_track', params: ['off'], label: 'Track off', group: 'Confirmed' },
+];
+
+/**
+ * The camera answered cloud-side MIoT calls in python-miio #996 (siid 2 /
+ * piid 1), so the local endpoint is worth sweeping even though the published
+ * spec lists only a power switch and P2P stream start/stop. A grid is the
+ * only way in: the spec cannot be trusted to be complete, and get_prop
+ * already proved it understates this firmware.
+ */
+export function miotPropertyGrid(maxSiid = 6, maxPiid = 6): Candidate[] {
+  const out: Candidate[] = [];
+  for (let siid = 1; siid <= maxSiid; siid++) {
+    for (let piid = 1; piid <= maxPiid; piid++) {
+      out.push({
+        method: 'get_properties',
+        params: [{ did: `s${siid}p${piid}`, siid, piid }],
+        label: `siid ${siid} piid ${piid}`,
+        group: 'MIoT',
+      });
+    }
+  }
+  return out;
+}
+
+/** MIoT actions, where a pan/tilt call would live if one exists locally. */
+export function miotActionGrid(maxSiid = 6, maxAiid = 4): Candidate[] {
+  const out: Candidate[] = [];
+  for (let siid = 1; siid <= maxSiid; siid++) {
+    for (let aiid = 1; aiid <= maxAiid; aiid++) {
+      out.push({
+        method: 'action',
+        params: [{ did: `a${siid}_${aiid}`, siid, aiid, in: [] }],
+        label: `action siid ${siid} aiid ${aiid}`,
+        group: 'MIoT actions',
+      });
+    }
+  }
+  return out;
+}
+
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
 /**

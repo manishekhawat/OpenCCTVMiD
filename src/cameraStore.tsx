@@ -6,12 +6,22 @@ import {
   type Direction,
   candidateCommands,
   candidateProps,
+  miotActionGrid,
+  miotPropertyGrid,
   ptzByDirection,
   signatureOf,
+  verifiedProps,
 } from './commands';
 import { MiioDevice, MiioError, type MiioResult } from './miio/device';
 
-export type MethodStatus = 'untested' | 'works' | 'exists' | 'absent' | 'silent';
+/**
+ * 'ignored' rather than 'silent' or 'failed': this firmware returns nothing
+ * at all for methods it does not implement, where a conforming miIO device
+ * would answer unsupported_method. Silence here is the camera declining, not
+ * the network dropping the packet — miIO.info answering in the same sweep is
+ * what rules the network out.
+ */
+export type MethodStatus = 'untested' | 'works' | 'exists' | 'absent' | 'ignored';
 
 export interface LogEntry {
   method: string;
@@ -34,6 +44,7 @@ export interface CameraState {
   findings: Record<string, MethodStatus>;
   liveProps: Record<string, string>;
   log: LogEntry[];
+  refreshing: boolean;
   probing: boolean;
   probeDone: number;
   probeTotal: number;
@@ -45,6 +56,7 @@ export interface CameraState {
   nudge(direction: Direction): Promise<boolean>;
   preferredPtz(direction: Direction): string | null;
   runProbe(includeDestructive?: boolean): Promise<void>;
+  refreshState(): Promise<void>;
   confirmed: Candidate[];
 }
 
@@ -95,6 +107,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [findings, setFindings] = useState<Record<string, MethodStatus>>({});
   const [liveProps, setLiveProps] = useState<Record<string, string>>({});
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [probing, setProbing] = useState(false);
   const [probeDone, setProbeDone] = useState(0);
   const [probeTotal, setProbeTotal] = useState(0);
@@ -128,6 +141,32 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
+  /**
+   * Reads the confirmed properties, one per call.
+   *
+   * Batching is tempting and wrong: get_prop omits names it doesn't know
+   * rather than returning null for them, so a four-name request can come back
+   * with two values and no way to tell which two. One name per call keeps the
+   * mapping unambiguous.
+   */
+  const refreshState = useCallback(async (target?: MiioDevice) => {
+    const dev = target ?? device.current;
+    if (!dev || refreshing) return;
+    setRefreshing(true);
+    const next: Record<string, string> = {};
+    for (const { name } of verifiedProps) {
+      try {
+        const result = await dev.getProp([name]);
+        const value = Array.isArray(result.value) ? result.value[0] : undefined;
+        if (value !== undefined && value !== null) next[name] = String(value);
+      } catch {
+        // Leave it out rather than showing a stale value as current.
+      }
+    }
+    setLiveProps(prev => ({ ...prev, ...next }));
+    setRefreshing(false);
+  }, [refreshing]);
+
   const connect = useCallback(
     async (nextIp: string, nextToken: string): Promise<boolean> => {
       setConnecting(true);
@@ -139,25 +178,34 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         await dev.handshake();
         const info = await dev.info();
 
+        // The handshake needs no token, so surviving it only proves the camera
+        // is online. miIO.info is the first call that actually uses the token,
+        // which makes it the real credential check — and the app must not let
+        // anyone past this point without it, or every later call fails for a
+        // reason nothing on screen explains.
+        if (info.error) {
+          dev.dispose();
+          setConnectionError(
+            `The camera answered the handshake, so it is reachable at ${nextIp.trim()} — ` +
+              `but miIO.info got no reply.\n\nOn miIO the camera verifies our checksum before ` +
+              `replying, so a wrong token produces silence rather than an error. That is the ` +
+              `most likely cause.\n\nIf your extractor listed this camera more than once, each ` +
+              `entry has a different token and only the live one works. Use the row whose name ` +
+              `and IP match what Mi Home shows.`,
+          );
+          note('connect', describe(info.error), false);
+          return false;
+        }
+
         device.current = dev;
         setIp(nextIp.trim());
         setToken(nextToken.trim());
+        setDeviceInfo(info.value as Record<string, any>);
         setConnected(true);
-
-        if (info.error) {
-          // The handshake needs no token, so reaching here only proves the
-          // camera is online. miIO.info is the first call that actually uses
-          // the token, which makes it the real credential check.
-          setConnectionError(
-            `The camera is reachable, but miIO.info failed:\n\n${describe(info.error)}`,
-          );
-          note('connect', describe(info.error), false);
-        } else {
-          setDeviceInfo(info.value as Record<string, any>);
-          note('connect', `device_id ${dev.deviceId}`, true);
-        }
+        note('connect', `device_id ${dev.deviceId}`, true);
         await persist(nextIp.trim(), nextToken.trim(), findings);
-        return !info.error;
+        void refreshState(dev);
+        return true;
       } catch (e) {
         setConnectionError(explain(e));
         note('connect', String(e), false);
@@ -184,7 +232,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const signature = `${method}(${params.map(p => JSON.stringify(p)).join(', ')})`;
       try {
         const result = await dev.send(method, params);
-        const status: MethodStatus = result.error ? 'silent' : 'works';
+        const status: MethodStatus = result.error ? 'ignored' : 'works';
         setFindings(prev => {
           const next = { ...prev, [signature]: status };
           void persist(ip, token, next);
@@ -235,7 +283,20 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const dev = device.current;
       if (!dev || probing) return;
 
-      const queue = candidateCommands.filter(c => includeDestructive || !c.destructive);
+      // The MIoT grids go in because the published spec for this model is
+      // demonstrably incomplete — it lists neither get_prop nor set_cruise,
+      // both of which answer. If a pan/tilt call exists locally at all, a
+      // siid/piid grid is the only way left to find it.
+      // Property reads are safe to sweep: get_properties only reads. Actions
+      // are not — "action" invokes something, and on a device whose spec we
+      // already know to be incomplete there is no way to know what siid 4
+      // aiid 2 does before calling it. A factory reset would look exactly
+      // like any other unknown action, so the grid stays behind an opt-in.
+      const queue = [
+        ...candidateCommands.filter(c => includeDestructive || !c.destructive),
+        ...miotPropertyGrid(),
+        ...(includeDestructive ? miotActionGrid() : []),
+      ];
       setProbing(true);
       setProbeDone(0);
       setProbeTotal(queue.length + candidateProps.length);
@@ -256,14 +317,14 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setProbeDone(++done);
         await new Promise(r => setTimeout(r, 250));
       }
-      setLiveProps(props);
+      setLiveProps(prev => ({ ...prev, ...props }));
 
       const results: Record<string, MethodStatus> = {};
       for (const c of queue) {
         const sig = signatureOf(c);
         try {
           const result = await dev.send(c.method, c.params, 0);
-          results[sig] = result.error ? 'silent' : 'works';
+          results[sig] = result.error ? 'ignored' : 'works';
         } catch (e) {
           results[sig] = e instanceof MiioError && e.methodAbsent ? 'absent' : 'exists';
         }
@@ -288,8 +349,8 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const value: CameraState = {
     ip, token, connected, connecting, connectionError, deviceInfo,
-    findings, liveProps, log, probing, probeDone, probeTotal,
-    load, connect, disconnect, call, nudge, preferredPtz, runProbe, confirmed,
+    findings, liveProps, log, refreshing, probing, probeDone, probeTotal,
+    load, connect, disconnect, call, nudge, preferredPtz, runProbe, refreshState, confirmed,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
