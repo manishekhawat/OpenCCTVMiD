@@ -56,17 +56,32 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          for attempt in 1 2 3; do
-            echo "::group::Gradle attempt $attempt"
+
+          # The wrapper downloads its Gradle distribution from
+          # services.gradle.org on first run. That host has returned 504s and
+          # read timeouts for extended stretches, failing the job before any
+          # of our code compiles. Try the wrapper, then fall back to the
+          # Gradle already installed on the runner, which needs no download.
+          for attempt in 1 2; do
+            echo "::group::Wrapper attempt $attempt"
             if ./gradlew assembleRelease --no-daemon; then
               echo "::endgroup::"
               exit 0
             fi
             echo "::endgroup::"
-            echo "attempt $attempt failed; retrying in 30s"
-            sleep 30
+            [ "$attempt" = 1 ] && { echo "retrying in 60s"; sleep 60; }
           done
-          echo "all three attempts failed"
+
+          if command -v gradle >/dev/null; then
+            echo "::group::Falling back to the runner's Gradle"
+            gradle --version
+            gradle assembleRelease --no-daemon && exit 0
+            echo "::endgroup::"
+          else
+            echo "no system gradle to fall back to"
+          fi
+
+          echo "build failed via both the wrapper and the system Gradle"
           exit 1
 
       - name: Stage the APK
