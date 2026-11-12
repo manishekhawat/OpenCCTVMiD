@@ -99,8 +99,12 @@ export function explainFailure(name: string, did: string, m: MatchResult): strin
     ? `On this Wi-Fi, device ${did} answered at ${m.lanIps.join(', ')}.`
     : `No device with id ${did} answered the scan on this Wi-Fi.`;
   const rejected = m.attempts.some(a => a.result === 'wrong-token');
+  // Seen on the real camera (2026-11-12): handshake answered, the account's
+  // current token silently rejected — and unplugging the camera for ten
+  // seconds fixed it. Its local-command service had stuck after it rejoined
+  // Wi-Fi on a new address. So restart first; re-adding is the last resort.
   const advice = rejected
-    ? 'The camera is reachable but none of the account\'s tokens work. That usually means it was reset or re-added in Mi Home after the account cached its token — open it once in Mi Home, then sign in here again.'
+    ? 'The camera is reachable but ignored every token. Unplug it for 10 seconds, plug it back in, wait for it to rejoin Wi-Fi (about a minute), then try again — that fixed this exact symptom before. If it still fails, the camera may have been re-added in Mi Home with a new token.'
     : 'Nothing answered at any address. Check that this phone is on the same Wi-Fi as the camera (not mobile data, not a guest network) and that the camera is powered.';
   return `${name} didn't connect.\n\n${lan}\n${lines.join('\n')}\n\n${advice}`;
 }
