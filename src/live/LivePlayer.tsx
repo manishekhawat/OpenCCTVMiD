@@ -96,7 +96,7 @@ export const LivePlayer: React.FC = () => {
 const s = StyleSheet.create({
   frame: { aspectRatio: 16 / 9, backgroundColor: '#000', borderRadius: 14, overflow: 'hidden' },
   web: { flex: 1, backgroundColor: '#000' },
-  overlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 20 },
+  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 20 },
   note: { color: theme.dim, fontSize: 12, textAlign: 'center' },
   error: { color: '#FFC9CC' },
   badge: {
