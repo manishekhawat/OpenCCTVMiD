@@ -1,8 +1,11 @@
-import React, { useEffect } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { describe, useCamera } from '../cameraStore';
 import { type Candidate, signatureOf, verifiedProps } from '../commands';
+import { LivePlayer } from '../live/LivePlayer';
+import { type LiveState, liveSession } from '../live/session';
+import type { Direction } from '../p2p/miss';
 import { theme } from '../theme';
 
 /**
@@ -41,14 +44,15 @@ const TILES: Tile[] = [
   },
   { key: 'pan', glyph: '✥', label: 'Pan / tilt', locked: 'motors' },
   { key: 'alarm', glyph: '◉', label: 'Motion alarm', locked: 'settings' },
-  { key: 'calibrate', glyph: '⟳', label: 'Calibrate', locked: 'motors' },
+  { key: 'calibrate', glyph: '⟳', label: 'Calibrate', locked: 'calibrate' },
   { key: 'power', glyph: '⏻', label: 'Camera off', locked: 'settings' },
   { key: 'night', glyph: '☾', label: 'Night mode', locked: 'settings' },
   { key: 'cloud', glyph: '☁', label: 'Storage', locked: 'cloud' },
 ];
 
 const LOCK_REASON: Record<string, string> = {
-  motors: 'Pan, tilt and calibration ride the P2P video channel. Every motor method was tried and the camera returned nothing.',
+  motors: 'Pan and tilt travel over the P2P channel with the video. Start live view above, then use the pad under the picture.',
+  calibrate: 'Calibration is a P2P command too, but its bytes haven\'t been captured yet. Pan and tilt work in live view.',
   settings: 'The camera acknowledges no write for this. set_power, set_night_mode and the motion-detection family all return silence.',
   cloud: 'Cloud storage is an account feature with no local endpoint.',
 };
@@ -59,15 +63,39 @@ const PROP_LABELS: Record<string, (v: string) => string> = {
   sdcard_status: v => ({ '0': 'No card', '1': 'Ready', '2': 'Error' }[v] ?? v),
 };
 
+const PtzButton: React.FC<{ d: Direction; glyph: string }> = ({ d, glyph }) => (
+  <Pressable
+    style={({ pressed }) => [s.ptzButton, pressed && s.ptzDown]}
+    onPressIn={() => void liveSession.ptz(d).catch(() => {})}
+    onPressOut={() => void liveSession.ptz('stop').catch(() => {})}>
+    <Text style={s.ptzGlyph}>{glyph}</Text>
+  </Pressable>
+);
+
 export const ControlScreen: React.FC = () => {
   const camera = useCamera();
+  const [live, setLive] = useState<LiveState>(liveSession.state);
 
   useEffect(() => {
     void camera.refreshState();
+    const off = liveSession.subscribe(setLive);
+    // Leaving the screen ends the stream: no one is watching, and the camera
+    // should not keep sending video into the void.
+    return () => {
+      off();
+      liveSession.stop();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const startLive = () =>
+    void liveSession.start({ ip: camera.ip, deviceId: camera.deviceId, token: camera.token });
+
   const onTile = async (tile: Tile) => {
+    if (tile.key === 'pan' && live.status === 'live') {
+      Alert.alert('Pan / tilt', 'Press and hold the arrows under the picture.');
+      return;
+    }
     if (tile.locked) {
       Alert.alert(`${tile.label} isn't available locally`, LOCK_REASON[tile.locked]);
       return;
@@ -96,20 +124,55 @@ export const ControlScreen: React.FC = () => {
         </Pressable>
       </View>
 
-      {/* Where the vendor app puts the live stream. There is no local stream,
-          so the space states that plainly instead of showing a dead player. */}
-      <View style={s.viewport}>
-        <Text style={s.viewportGlyph}>⬚</Text>
-        <Text style={s.viewportTitle}>No local video</Text>
-        <Text style={s.viewportBody}>
-          The stream is carried over Xiaomi's P2P channel, not RTSP. Nothing on the LAN can render
-          it. Use the vendor app for the picture.
-        </Text>
-      </View>
+      {live.status === 'live' ? (
+        <View style={s.liveBlock}>
+          <LivePlayer />
+          <View style={s.ptz}>
+            <PtzButton d="up" glyph="▲" />
+            <View style={s.ptzRow}>
+              <PtzButton d="left" glyph="◀" />
+              <Pressable onPress={() => liveSession.stop()} style={s.ptzStop} hitSlop={6}>
+                <Text style={s.ptzStopText}>Stop</Text>
+              </Pressable>
+              <PtzButton d="right" glyph="▶" />
+            </View>
+            <PtzButton d="down" glyph="▼" />
+          </View>
+        </View>
+      ) : (
+        <View style={s.viewport}>
+          {live.status === 'connecting' ? (
+            <>
+              <ActivityIndicator color={theme.accent} />
+              <Text style={s.viewportBody}>{live.step}</Text>
+            </>
+          ) : liveSession.canStart ? (
+            <>
+              <Text style={s.viewportTitle}>Live view</Text>
+              <Text style={s.viewportBody}>
+                Video and pan/tilt over the camera's P2P channel — the same route Mi Home uses.
+              </Text>
+              {live.status === 'error' && <Text style={s.liveError}>{live.error}</Text>}
+              <Pressable style={s.liveButton} onPress={startLive}>
+                <Text style={s.liveButtonText}>{live.status === 'error' ? 'Try again' : 'Start live view'}</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Text style={s.viewportGlyph}>⬚</Text>
+              <Text style={s.viewportTitle}>Live view needs your Mi account</Text>
+              <Text style={s.viewportBody}>
+                The camera's P2P keys come from Xiaomi's cloud. Disconnect, then use "Sign in with Mi
+                account"; the session lasts until the app closes.
+              </Text>
+            </>
+          )}
+        </View>
+      )}
 
       <View style={s.grid}>
         {TILES.map(tile => {
-          const locked = Boolean(tile.locked);
+          const locked = Boolean(tile.locked) && !(tile.key === 'pan' && live.status === 'live');
           return (
             <Pressable key={tile.key} style={s.tileWrap} onPress={() => onTile(tile)}>
               <View style={[s.tile, locked && s.tileLocked]}>
@@ -194,6 +257,24 @@ const s = StyleSheet.create({
   },
   viewportGlyph: { color: theme.faint, fontSize: 34, marginBottom: 10 },
   viewportTitle: { color: theme.text, fontSize: 15, fontWeight: '600', marginBottom: 6 },
+  liveBlock: { marginHorizontal: 14, gap: 14 },
+  liveError: { color: '#FFC9CC', fontSize: 12, textAlign: 'center', marginTop: 10, lineHeight: 18 },
+  liveButton: { backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 22, marginTop: 14 },
+  liveButtonText: { color: '#00201E', fontSize: 15, fontWeight: '700' },
+  ptz: { alignItems: 'center', gap: 6 },
+  ptzRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ptzButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: '#1C1C20',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ptzDown: { backgroundColor: theme.accentDim },
+  ptzGlyph: { color: theme.accent, fontSize: 22 },
+  ptzStop: { width: 60, height: 60, alignItems: 'center', justifyContent: 'center' },
+  ptzStopText: { color: theme.faint, fontSize: 12 },
   viewportBody: { color: theme.dim, fontSize: 12, lineHeight: 18, textAlign: 'center' },
 
   grid: {

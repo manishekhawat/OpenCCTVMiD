@@ -130,7 +130,7 @@ export const P2PTest: React.FC = () => {
           'frames',
           'ok',
           `${st.video} video frames, ${st.keyframes} keyframes, codecs ${JSON.stringify(st.codecs)}. ` +
-            `First: ${st.firstVideo}`,
+            `First: ${st.firstVideo}` + (st.firstKeyframe ? `. First keyframe: ${st.firstKeyframe}` : ''),
         );
       } else {
         // Legacy path, kept for older Dafang firmware.

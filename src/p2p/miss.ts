@@ -1,4 +1,5 @@
-import { describePayload, TutkConn } from './tutkConn';
+import { codecFromId, describeNals, isKeyframe, splitNals } from './nal';
+import { TutkConn } from './tutkConn';
 import { authRequest, dafangPtz, dafangQuality, dafangVideoStart, decode, type Direction, encode, sharedKey } from './missCodec';
 
 export * from './missCodec';
@@ -32,6 +33,7 @@ export interface MissStats {
   audio: number;
   codecs: Record<string, number>;
   firstVideo: string;
+  firstKeyframe: string;
   keyframes: number;
   decodeErrors: number;
 }
@@ -43,6 +45,7 @@ const codecName = (id: number) =>
 export interface MissFrame {
   codec: number;
   payload: Uint8Array;
+  keyframe: boolean;
 }
 
 // --- client -------------------------------------------------------------------
@@ -50,7 +53,7 @@ export interface MissFrame {
 export class MissClient {
   readonly conn: TutkConn;
   private readonly key: Uint8Array;
-  stats: MissStats = { frames: 0, video: 0, audio: 0, codecs: {}, firstVideo: '', keyframes: 0, decodeErrors: 0 };
+  stats: MissStats = { frames: 0, video: 0, audio: 0, codecs: {}, firstVideo: '', firstKeyframe: '', keyframes: 0, decodeErrors: 0 };
   onVideo: ((f: MissFrame) => void) | null = null;
 
   constructor(ip: string, uid: string, devicePublic: string, clientPrivate: string) {
@@ -101,12 +104,17 @@ export class MissClient {
     const name = codecName(codec);
     st.codecs[name] = (st.codecs[name] ?? 0) + 1;
     const plain = decode(payload, this.key);
-    if (codec === 4 || codec === 5) {
+    const vc = codecFromId(codec);
+    if (vc) {
       st.video++;
-      const kind = describePayload(plain);
-      if (!st.firstVideo) st.firstVideo = kind;
-      if (/SPS|VPS|IDR/.test(kind)) st.keyframes++;
-      this.onVideo?.({ codec, payload: plain });
+      const nals = splitNals(plain, vc);
+      if (!st.firstVideo) st.firstVideo = describeNals(nals);
+      const key = isKeyframe(nals);
+      if (key) {
+        st.keyframes++;
+        if (!st.firstKeyframe) st.firstKeyframe = describeNals(nals);
+      }
+      this.onVideo?.({ codec, payload: plain, keyframe: key });
     } else {
       st.audio++;
     }
