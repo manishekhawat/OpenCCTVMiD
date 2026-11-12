@@ -213,7 +213,16 @@ export class TutkConn {
     this.frame(all.subarray(payloadSize), all.subarray(0, payloadSize));
   }
 
+  /** Set by a layer above (MISS) that needs to decrypt payloads itself. */
+  onFrame: ((header: Uint8Array, payload: Uint8Array) => void) | null = null;
+
   private frame(header: Uint8Array, payload: Uint8Array) {
+    if (this.onFrame) {
+      this.stats.frames++;
+      this.stats.bytes += payload.length;
+      this.onFrame(header, payload);
+      return;
+    }
     const st = this.stats;
     if (st.frames === 0) {
       st.firstHeader = hex(header, 16);
@@ -227,7 +236,21 @@ export class TutkConn {
 
   // --- commands (go2rtc Conn.WriteCommand / ReadCommand) ---------------------
 
-  async writeCommand(ctrlType: number, data: Uint8Array): Promise<void> {
+  /**
+   * Commands go one at a time — go2rtc holds cmdMu for the same reason: there
+   * is one acknowledgement slot, so a "stop" sent while "left" still waits for
+   * its ack would steal it. Pressing and releasing a pan button does exactly
+   * that.
+   */
+  private cmdQueue: Promise<void> = Promise.resolve();
+
+  writeCommand(ctrlType: number, data: Uint8Array): Promise<void> {
+    const run = this.cmdQueue.then(() => this.writeCommandNow(ctrlType, data));
+    this.cmdQueue = run.catch(() => {});
+    return run;
+  }
+
+  private async writeCommandNow(ctrlType: number, data: Uint8Array): Promise<void> {
     const buf = this.s.sendIOCtrl(ctrlType, data, Date.now());
     for (let attempt = 0; attempt < 5; attempt++) {
       const acked = new Promise<boolean>(resolve => {

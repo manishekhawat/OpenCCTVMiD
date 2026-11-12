@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/hex"
+	"fmt"
 	"encoding/json"
 	"os"
 
@@ -69,7 +70,31 @@ func main() {
 		"clientStart0": h(cs0), "clientStart1": h(cs1), "ioctrlFirst": h(io1),
 	}
 
+	// MISS-over-TUTK Dafang commands: go2rtc pkg/xiaomi/miss/client.go
+	// dafangRaw, copied verbatim below. The PTZ ones are the commented-out
+	// helpers in that file, captured from a real isa.camera.df3.
+	out["dafang"] = map[string]string{
+		"quality_hd":  h(dafangRaw(0xff07d5, 0)),
+		"video_start": h(dafangRaw(0xff07d8, 1, 1)),
+		"left":        h(dafangRaw(0xff2404, 2, 0, 5)),
+		"right":       h(dafangRaw(0xff2404, 1, 0, 5)),
+		"up":          h(dafangRaw(0xff2404, 0, 2, 5)),
+		"down":        h(dafangRaw(0xff2404, 0, 1, 5)),
+		"stop":        h(dafangRaw(0xff2404, 0, 0, 5)),
+		"auth":        h([]byte(fmt.Sprintf(`{"public_key":"%s","sign":"%s","uuid":"","support_encrypt":0}`, "aa", "bb"))),
+	}
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(out)
+}
+
+// verbatim from go2rtc pkg/xiaomi/miss/client.go
+func dafangRaw(cmd uint32, args ...byte) []byte {
+	payload := tutk.ICAM(cmd, args...)
+
+	data := make([]byte, 4+len(payload)*2)
+	copy(data, "\x7f\xff\xff\xff")
+	hex.Encode(data[4:], payload)
+	return data
 }
