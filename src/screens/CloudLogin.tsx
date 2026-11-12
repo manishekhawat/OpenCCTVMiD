@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { findWorkingCredentials } from '../cloud/match';
+import { explainFailure, findWorkingCredentials } from '../cloud/match';
 import { type CloudDevice, type LoginStep, XiaomiCloud, isCamera } from '../cloud/xiaomi';
 import { theme } from '../theme';
 
@@ -61,19 +61,14 @@ export const CloudLogin: React.FC<{ onFound: (ip: string, token: string) => void
   const choose = async (d: CloudDevice, all: CloudDevice[]) => {
     setError(null);
     setPhase({ kind: 'busy', note: `Checking ${d.name}…` });
-    const creds = await findWorkingCredentials(d, all, (ip, tail) =>
-      setPhase({ kind: 'busy', note: `Trying ${ip} with token …${tail}` }),
-    );
-    if (!creds) {
-      setError(
-        `${d.name} did not answer with any token the account lists. Make sure this phone is on the ` +
-          `same Wi-Fi as the camera.`,
-      );
+    const result = await findWorkingCredentials(d, all, note => setPhase({ kind: 'busy', note }));
+    if (!result.creds) {
+      setError(explainFailure(d.name || d.model, d.did, result));
       setPhase({ kind: 'devices', devices: all });
       return;
     }
     setOpen(false);
-    onFound(creds.ip, creds.token);
+    onFound(result.creds.ip, result.creds.token);
   };
 
   if (!open) {

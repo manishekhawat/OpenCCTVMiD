@@ -1,42 +1,106 @@
-import { MiioDevice } from '../miio/device';
+import { MiioDevice, discover } from '../miio/device';
 import type { CloudDevice } from './xiaomi';
 
 /**
  * Finds the IP and token this camera actually answers to.
  *
- * The account can list the same camera more than once — a stale registration
- * on another server, with its own token and an old IP. That happened with
- * this exact camera: two entries, same device id, different tokens, and only
- * one of them worked. Rather than asking the user to guess, try every token
- * against every address the account knows for that device id, and keep the
- * first pair where miIO.info comes back.
+ * Two things the cloud gets wrong, both seen on this account:
  *
- * A wrong token produces silence rather than an error, so each attempt costs
- * one timeout; with two entries that is at most four short attempts.
+ * - The same camera listed twice, on two servers, with different tokens.
+ *   Only one token works.
+ * - A stale IP. The account said 192.168.1.14 while the camera had been at
+ *   .11; the router hands out new addresses and the cloud lags behind.
+ *
+ * So the LAN is asked first: a hello broadcast returns each device's id, and
+ * whatever address answers with this camera's id is where it really is. The
+ * cloud's addresses are only fallbacks. Then every token is tried against
+ * every candidate address.
+ *
+ * Each attempt is recorded, because the two failures need different fixes
+ * and look identical from a single "no answer": no handshake reply means
+ * nothing is at that address; a handshake reply followed by silence means the
+ * camera is there and the token is wrong (it verifies our checksum before
+ * replying, so a bad token produces silence, not an error).
  */
+
+export interface Attempt {
+  ip: string;
+  tokenTail: string;
+  result: 'ok' | 'no-device' | 'wrong-token';
+}
+
+export interface MatchResult {
+  creds: { ip: string; token: string } | null;
+  attempts: Attempt[];
+  lanIps: string[];
+  tokenCount: number;
+}
+
 export async function findWorkingCredentials(
   chosen: CloudDevice,
   all: CloudDevice[],
-  onAttempt?: (ip: string, tokenTail: string) => void,
-): Promise<{ ip: string; token: string } | null> {
+  onProgress?: (note: string) => void,
+): Promise<MatchResult> {
   const same = all.filter(d => d.did === chosen.did);
-  const tokens = [...new Set([chosen.token, ...same.map(d => d.token)].filter(t => /^[0-9a-f]{32}$/i.test(t)))];
-  const ips = [...new Set([chosen.ip, ...same.map(d => d.ip)].filter(Boolean))];
+  const tokens = [
+    ...new Set([chosen.token, ...same.map(d => d.token)].filter(t => /^[0-9a-f]{32}$/i.test(t))),
+  ];
+
+  onProgress?.('Looking for the camera on this Wi-Fi…');
+  let lanIps: string[] = [];
+  try {
+    const found = await discover(3000);
+    lanIps = found.filter(f => String(f.deviceId) === chosen.did).map(f => f.ip);
+  } catch {
+    // Discovery is a shortcut, not a requirement.
+  }
+
+  const ips = [...new Set([...lanIps, chosen.ip, ...same.map(d => d.ip)].filter(Boolean))];
+  const attempts: Attempt[] = [];
 
   for (const ip of ips) {
     for (const token of tokens) {
-      onAttempt?.(ip, token.slice(-4));
-      const dev = new MiioDevice(ip, token, undefined, 2000);
+      const tokenTail = token.slice(-4);
+      onProgress?.(`Trying ${ip} with token …${tokenTail}`);
+      const dev = new MiioDevice(ip, token, undefined, 3000);
+      let handshook = false;
       try {
         await dev.handshake();
-        const info = await dev.send('miIO.info', [], 0);
-        if (!info.error) return { ip, token };
+        handshook = true;
+        const info = await dev.send('miIO.info', [], 1);
+        if (!info.error) {
+          attempts.push({ ip, tokenTail, result: 'ok' });
+          return { creds: { ip, token }, attempts, lanIps, tokenCount: tokens.length };
+        }
+        attempts.push({ ip, tokenTail, result: 'wrong-token' });
       } catch {
-        // Unreachable or wrong token; try the next pair.
+        attempts.push({ ip, tokenTail, result: handshook ? 'wrong-token' : 'no-device' });
       } finally {
         dev.dispose();
       }
+      // Nothing listens at this address; other tokens won't change that.
+      if (!handshook) break;
     }
   }
-  return null;
+  return { creds: null, attempts, lanIps, tokenCount: tokens.length };
+}
+
+/** Turns the attempts into something a person can act on. */
+export function explainFailure(name: string, did: string, m: MatchResult): string {
+  if (m.tokenCount === 0) {
+    return `The account returned no token for ${name}. Xiaomi only gives tokens to the device's owner — if this camera is shared with you, sign in with the owner's account.`;
+  }
+  const lines = m.attempts.map(a =>
+    `• ${a.ip}, token …${a.tokenTail}: ${
+      a.result === 'no-device' ? 'nothing answered at this address' : 'camera is there, token rejected'
+    }`,
+  );
+  const lan = m.lanIps.length
+    ? `On this Wi-Fi, device ${did} answered at ${m.lanIps.join(', ')}.`
+    : `No device with id ${did} answered the scan on this Wi-Fi.`;
+  const rejected = m.attempts.some(a => a.result === 'wrong-token');
+  const advice = rejected
+    ? 'The camera is reachable but none of the account\'s tokens work. That usually means it was reset or re-added in Mi Home after the account cached its token — open it once in Mi Home, then sign in here again.'
+    : 'Nothing answered at any address. Check that this phone is on the same Wi-Fi as the camera (not mobile data, not a guest network) and that the camera is powered.';
+  return `${name} didn't connect.\n\n${lan}\n${lines.join('\n')}\n\n${advice}`;
 }
