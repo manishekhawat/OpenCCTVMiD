@@ -42,6 +42,8 @@ export interface CameraState {
   connecting: boolean;
   connectionError: string | null;
   deviceInfo: Record<string, any> | null;
+  /** miIO device id from the handshake — the cloud's "did". */
+  deviceId: number | null;
   findings: Record<string, MethodStatus>;
   liveProps: Record<string, string>;
   log: LogEntry[];
@@ -110,6 +112,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [connecting, setConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [deviceInfo, setDeviceInfo] = useState<Record<string, any> | null>(null);
+  const [deviceId, setDeviceId] = useState<number | null>(null);
   const [findings, setFindings] = useState<Record<string, MethodStatus>>({});
   const [liveProps, setLiveProps] = useState<Record<string, string>>({});
   const [log, setLog] = useState<LogEntry[]>([]);
@@ -207,6 +210,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIp(nextIp.trim());
         setToken(nextToken.trim());
         setDeviceInfo(info.value as Record<string, any>);
+        setDeviceId(dev.deviceId);
         setConnected(true);
         note('connect', `device_id ${dev.deviceId}`, true);
         await persist(nextIp.trim(), nextToken.trim(), findings);
@@ -357,7 +361,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const value: CameraState = {
-    ip, token, connected, connecting, connectionError, deviceInfo,
+    ip, token, connected, connecting, connectionError, deviceInfo, deviceId,
     findings, liveProps, log, refreshing, probing, probeDone, probeTotal,
     load, connect, disconnect, call, nudge, preferredPtz, runProbe, refreshState, confirmed,
   };

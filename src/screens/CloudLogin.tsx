@@ -2,7 +2,8 @@ import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { explainFailure, findWorkingCredentials } from '../cloud/match';
-import { type CloudDevice, type LoginStep, XiaomiCloud, isCamera } from '../cloud/xiaomi';
+import { cloudSession } from '../cloud/session';
+import { type CloudDevice, type LoginStep, isCamera } from '../cloud/xiaomi';
 import { theme } from '../theme';
 
 /**
@@ -21,7 +22,7 @@ type Phase =
   | { kind: 'devices'; devices: CloudDevice[] };
 
 export const CloudLogin: React.FC<{ onFound: (ip: string, token: string) => void }> = ({ onFound }) => {
-  const cloud = useRef(new XiaomiCloud());
+  const cloud = useRef(cloudSession.get());
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: 'form' });
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +56,7 @@ export const CloudLogin: React.FC<{ onFound: (ip: string, token: string) => void
       setPhase({ kind: 'form' });
       return;
     }
+    cloudSession.setDevices(all);
     setPhase({ kind: 'devices', devices: all });
   };
 

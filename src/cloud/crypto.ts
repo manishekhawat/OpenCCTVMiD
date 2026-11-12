@@ -64,14 +64,20 @@ export function rc4Drop1024(key: Uint8Array, input: Uint8Array): Uint8Array {
   return out;
 }
 
-/**
- * 8 random bytes + the current minute. Uses Math.random: Hermes has no
- * crypto.getRandomValues without an extra native module, and this nonce only
- * needs to be unique per request — it protects nothing secret.
- */
+/** Secure random bytes when the platform has them (index.js installs them). */
+export function randomBytes(n: number): Uint8Array {
+  const out = new Uint8Array(n);
+  const c = (globalThis as { crypto?: { getRandomValues?: (a: Uint8Array) => Uint8Array } }).crypto;
+  if (c?.getRandomValues) return c.getRandomValues(out);
+  // Jest without webcrypto. Never reached in the app.
+  for (let k = 0; k < n; k++) out[k] = Math.floor(Math.random() * 256);
+  return out;
+}
+
+/** 8 random bytes + big-endian uint32 of the current minute. */
 export function makeNonce(nowMs = Date.now()): Uint8Array {
   const nonce = new Uint8Array(12);
-  for (let k = 0; k < 8; k++) nonce[k] = Math.floor(Math.random() * 256);
+  nonce.set(randomBytes(8), 0);
   new DataView(nonce.buffer).setUint32(8, Math.floor(nowMs / 60000), false);
   return nonce;
 }

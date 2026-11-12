@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useCamera } from '../cameraStore';
+import { P2PTest } from './P2PTest';
 import { statusColor, theme } from '../theme';
 
 export const ProbeScreen: React.FC = () => {
@@ -18,6 +19,8 @@ export const ProbeScreen: React.FC = () => {
 
   return (
     <ScrollView style={s.page} contentContainerStyle={s.content}>
+      <P2PTest />
+
       <Text style={s.title}>Capability probe</Text>
       <Text style={s.body}>
         This firmware answers nothing at all for methods it doesn't implement, where a conforming
