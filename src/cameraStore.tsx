@@ -193,11 +193,11 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           dev.dispose();
           setConnectionError(
             `The camera answered the handshake, so it is reachable at ${nextIp.trim()} — ` +
-              `but miIO.info got no reply.\n\nOn miIO the camera verifies our checksum before ` +
-              `replying, so a wrong token produces silence rather than an error. That is the ` +
-              `most likely cause.\n\nIf your extractor listed this camera more than once, each ` +
-              `entry has a different token and only the live one works. Use the row whose name ` +
-              `and IP match what Mi Home shows.`,
+              `but it ignored the command sent with this token.\n\nFirst, unplug the camera for ` +
+              `10 seconds and plug it back in. Its local-command service can get stuck after it ` +
+              `rejoins Wi-Fi, and a restart has fixed exactly this before.\n\nIf that doesn't ` +
+              `help, the token is wrong. Use Sign in with Mi account: it tests every token the ` +
+              `account lists and keeps the one the camera answers to.`,
           );
           note('connect', describe(info.error), false);
           return false;
