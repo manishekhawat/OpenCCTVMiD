@@ -12,6 +12,13 @@ on:
 permissions:
   contents: write # required to create/replace the release
 
+# Pushes close together used to build in parallel, and whichever finished
+# last replaced the "latest" release — on 2026-11-12 an older commit's
+# slower run overwrote the newer APK. A newer push now cancels older runs.
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -114,6 +121,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Belt and braces with the concurrency group: never publish a commit
+          # that is no longer the branch head.
+          HEAD_SHA=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$HEAD_SHA" != "$GITHUB_SHA" ]; then
+            echo "main has moved on to $HEAD_SHA; not publishing $GITHUB_SHA"
+            exit 0
+          fi
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
           gh release create latest \
             "${{ steps.stage.outputs.apk }}" \
