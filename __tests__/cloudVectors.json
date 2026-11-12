@@ -1,0 +1,21 @@
+{
+  "ssecurity": "AAECAwQFBgcICQoLDA0ODw==",
+  "nonce": "BwECAwQFBggBuoFA",
+  "path": "/v2/homeroom/gethome",
+  "data": "{\"fg\": true, \"fetch_share\": true, \"fetch_share_dev\": true, \"limit\": 300, \"app_ver\": 7}",
+  "signedNonce": "3Sj6gncxCtVL/PhbDERjKLSXb6JJ6ZCE63ysflpADVs=",
+  "rc4_hash__plain": "+chubahmiBGj3RhpFBqSTz4e8fQ=",
+  "form": {
+    "data": "X3x6S+F61Mz6OM/nfFx9eG/VCrJy+nV3tk3/CH+bp4pFLc9SjVX7QG6x+Ww8sbE5letDv+ognjhfylZD+UuK2ZqK5BaVSoISTNYgC3ODqLobyKE9Pek=",
+    "rc4_hash__": "Dz10WaEhnNXhD+2hbyxzbV30E75V6CBg6wmUFQ==",
+    "signature": "1nf9yAFxhTlxRJU7+NEMqffKNBE="
+  },
+  "reply": {
+    "plain": "{\"code\":0,\"message\":\"ok\",\"result\":{\"homelist\":[{\"id\":\"122\"}]}}",
+    "encrypted": "X3x/Q6cl1oK4YYimOQ1ofHzTQNcj/X8n/023TXicvptLN5YWgE71TV2r4nls7rUm0vQFp/B23X8IxAs86F8="
+  },
+  "passwordHash": {
+    "input": "correct horse ✓",
+    "md5Upper": "B7BBE04B7B6B0F1C76D2E1945F82E158"
+  }
+}

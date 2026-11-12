@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 
 import { useCamera } from '../cameraStore';
+import { CloudLogin } from './CloudLogin';
 import { type Discovered, discover } from '../miio/device';
 import { theme } from '../theme';
 
@@ -36,6 +37,16 @@ export const ConnectScreen: React.FC = () => {
     <ScrollView style={s.page} contentContainerStyle={s.content}>
       <Text style={s.title}>Dafang Control</Text>
       <Text style={s.subtitle}>Local miIO on UDP 54321 — no cloud, no Mi Home.</Text>
+
+      <CloudLogin
+        onFound={(foundIp, foundToken) => {
+          setIp(foundIp);
+          setToken(foundToken);
+          void camera.connect(foundIp, foundToken);
+        }}
+      />
+
+      <Text style={s.or}>or enter them yourself</Text>
 
       <Text style={s.label}>Camera IP</Text>
       <TextInput
@@ -112,12 +123,11 @@ export const ConnectScreen: React.FC = () => {
       <Text style={s.sectionTitle}>Getting the token</Text>
       <Text style={s.body}>
         The token is the camera's local password — 16 bytes, never sent over the wire, used to
-        derive the AES key. Mi Home holds it.{'\n\n'}
-        1. Easiest: run Xiaomi-cloud-tokens-extractor on a PC and sign in with your Mi account.
-        {'\n'}
-        2. Or pull /data/data/com.xiaomi.smarthome/databases/miio2.db from a rooted device or an
-        emulator.{'\n\n'}
-        Resetting the camera or re-adding it in Mi Home changes the token.
+        derive the AES key. Mi Home holds it, which is why fetching it needs your Mi account
+        once.{'\n\n'}
+        "Sign in with Mi account" above does that directly. Once connected, the app talks only to
+        the camera on your Wi-Fi.{'\n\n'}
+        Resetting the camera or re-adding it in Mi Home changes the token — sign in again.
       </Text>
     </ScrollView>
   );
@@ -127,6 +137,7 @@ const s = StyleSheet.create({
   page: { flex: 1, backgroundColor: theme.bg },
   content: { padding: 20, paddingBottom: 48 },
   title: { color: theme.text, fontSize: 28, fontWeight: '700' },
+  or: { color: theme.faint, fontSize: 12, textAlign: 'center', marginBottom: 18 },
   subtitle: { color: theme.dim, fontSize: 14, marginTop: 6, marginBottom: 28 },
   label: { color: theme.dim, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1.1, marginBottom: 8 },
   input: {
