@@ -55,6 +55,7 @@ const LOCK_REASON: Record<string, string> = {
   calibrate: 'Calibration is a P2P command too, but its bytes haven\'t been captured yet. Pan and tilt work in live view.',
   settings: 'The camera acknowledges no write for this. set_power, set_night_mode and the motion-detection family all return silence.',
   cloud: 'Cloud storage is an account feature with no local endpoint.',
+  miio: "The camera's local-command service isn't answering, so Track and Cruise can't be sent. Unplug the camera for 10 seconds, then sign in again. Live view and pan/tilt are unaffected.",
 };
 
 const PROP_LABELS: Record<string, (v: string) => string> = {
@@ -91,13 +92,20 @@ export const ControlScreen: React.FC = () => {
   const startLive = () =>
     void liveSession.start({ ip: camera.ip, deviceId: camera.deviceId, token: camera.token });
 
+  const lockOf = (tile: Tile): string | undefined => {
+    if (tile.key === 'pan') return live.status === 'live' ? undefined : tile.locked;
+    if (tile.command && !camera.miioAvailable) return 'miio';
+    return tile.locked;
+  };
+
   const onTile = async (tile: Tile) => {
     if (tile.key === 'pan' && live.status === 'live') {
       Alert.alert('Pan / tilt', 'Press and hold the arrows under the picture.');
       return;
     }
-    if (tile.locked) {
-      Alert.alert(`${tile.label} isn't available locally`, LOCK_REASON[tile.locked]);
+    const lock = lockOf(tile);
+    if (lock) {
+      Alert.alert(`${tile.label} isn't available right now`, LOCK_REASON[lock]);
       return;
     }
     if (!tile.command) return;
@@ -123,6 +131,15 @@ export const ControlScreen: React.FC = () => {
           <Text style={s.link}>Disconnect</Text>
         </Pressable>
       </View>
+
+      {!camera.miioAvailable && (
+        <View style={s.banner}>
+          <Text style={s.bannerText}>
+            Live-view-only mode: the camera's local-command service isn't answering, so Track, Cruise
+            and status are unavailable. Unplugging the camera for 10 seconds brings them back.
+          </Text>
+        </View>
+      )}
 
       {live.status === 'live' ? (
         <View style={s.liveBlock}>
@@ -172,7 +189,7 @@ export const ControlScreen: React.FC = () => {
 
       <View style={s.grid}>
         {TILES.map(tile => {
-          const locked = Boolean(tile.locked) && !(tile.key === 'pan' && live.status === 'live');
+          const locked = Boolean(lockOf(tile));
           return (
             <Pressable key={tile.key} style={s.tileWrap} onPress={() => onTile(tile)}>
               <View style={[s.tile, locked && s.tileLocked]}>
@@ -257,6 +274,8 @@ const s = StyleSheet.create({
   },
   viewportGlyph: { color: theme.faint, fontSize: 34, marginBottom: 10 },
   viewportTitle: { color: theme.text, fontSize: 15, fontWeight: '600', marginBottom: 6 },
+  banner: { marginHorizontal: 14, marginBottom: 14, backgroundColor: '#2E2410', borderRadius: 10, padding: 12 },
+  bannerText: { color: '#F5D58A', fontSize: 12, lineHeight: 18 },
   liveBlock: { marginHorizontal: 14, gap: 14 },
   liveError: { color: '#FFC9CC', fontSize: 12, textAlign: 'center', marginTop: 10, lineHeight: 18 },
   liveButton: { backgroundColor: theme.accent, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 22, marginTop: 14 },

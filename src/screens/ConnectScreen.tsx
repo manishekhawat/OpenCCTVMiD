@@ -44,6 +44,7 @@ export const ConnectScreen: React.FC = () => {
           setToken(foundToken);
           void camera.connect(foundIp, foundToken);
         }}
+        onP2POnly={target => camera.connectP2POnly(target.ip, target.token, target.deviceId, target.model)}
       />
 
       <Text style={s.or}>or enter them yourself</Text>

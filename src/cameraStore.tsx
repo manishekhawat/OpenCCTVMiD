@@ -39,6 +39,12 @@ export interface CameraState {
   ip: string;
   token: string;
   connected: boolean;
+  /**
+   * False when connected in P2P-only mode: the camera answered on the LAN but
+   * its local-command (miIO) service ignored the token. Live view and
+   * pan/tilt still work — they use P2P — but Track, Cruise and status don't.
+   */
+  miioAvailable: boolean;
   connecting: boolean;
   connectionError: string | null;
   deviceInfo: Record<string, any> | null;
@@ -54,6 +60,7 @@ export interface CameraState {
 
   load(): Promise<void>;
   connect(ip: string, token: string): Promise<boolean>;
+  connectP2POnly(ip: string, token: string, deviceId: number, model: string): void;
   disconnect(): void;
   call(method: string, params: unknown[]): Promise<MiioResult | null>;
   nudge(direction: Direction): Promise<boolean>;
@@ -109,6 +116,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [ip, setIp] = useState('192.168.1.11');
   const [token, setToken] = useState('');
   const [connected, setConnected] = useState(false);
+  const [miioAvailable, setMiioAvailable] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [deviceInfo, setDeviceInfo] = useState<Record<string, any> | null>(null);
@@ -211,6 +219,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setToken(nextToken.trim());
         setDeviceInfo(info.value as Record<string, any>);
         setDeviceId(dev.deviceId);
+        setMiioAvailable(true);
         setConnected(true);
         note('connect', `device_id ${dev.deviceId}`, true);
         await persist(nextIp.trim(), nextToken.trim(), findings);
@@ -225,6 +234,28 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     },
     [findings, note, persist],
+  );
+
+  /**
+   * Seen twice on the real camera (2026-11-12 and -13): handshake answered,
+   * the account's current token ignored, fixed only by power-cycling the
+   * camera. That stalls the camera's miIO service, not its P2P service — so
+   * rather than lock the user out of live view, connect without miIO.
+   */
+  const connectP2POnly = useCallback(
+    (nextIp: string, nextToken: string, nextDeviceId: number, model: string) => {
+      device.current?.dispose();
+      device.current = null;
+      setIp(nextIp);
+      setToken(nextToken);
+      setDeviceId(nextDeviceId);
+      setDeviceInfo({ model, fw_ver: '?' });
+      setMiioAvailable(false);
+      setConnectionError(null);
+      setConnected(true);
+      note('connect', `P2P-only: ${nextIp} answered as ${nextDeviceId}, local commands unavailable`, true);
+    },
+    [note],
   );
 
   const disconnect = useCallback(() => {
@@ -361,9 +392,9 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const value: CameraState = {
-    ip, token, connected, connecting, connectionError, deviceInfo, deviceId,
+    ip, token, connected, miioAvailable, connecting, connectionError, deviceInfo, deviceId,
     findings, liveProps, log, refreshing, probing, probeDone, probeTotal,
-    load, connect, disconnect, call, nudge, preferredPtz, runProbe, refreshState, confirmed,
+    load, connect, connectP2POnly, disconnect, call, nudge, preferredPtz, runProbe, refreshState, confirmed,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

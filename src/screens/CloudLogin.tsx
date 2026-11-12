@@ -21,11 +21,22 @@ type Phase =
   | { kind: 'verify'; via: 'email' | 'phone'; target: string }
   | { kind: 'devices'; devices: CloudDevice[] };
 
-export const CloudLogin: React.FC<{ onFound: (ip: string, token: string) => void }> = ({ onFound }) => {
+export interface P2POnlyTarget {
+  ip: string;
+  token: string;
+  deviceId: number;
+  model: string;
+}
+
+export const CloudLogin: React.FC<{
+  onFound: (ip: string, token: string) => void;
+  onP2POnly: (t: P2POnlyTarget) => void;
+}> = ({ onFound, onP2POnly }) => {
   const cloud = useRef(cloudSession.get());
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: 'form' });
   const [error, setError] = useState<string | null>(null);
+  const [fallback, setFallback] = useState<P2POnlyTarget | null>(null);
 
   const [user, setUser] = useState('');
   const [pass, setPass] = useState('');
@@ -62,10 +73,16 @@ export const CloudLogin: React.FC<{ onFound: (ip: string, token: string) => void
 
   const choose = async (d: CloudDevice, all: CloudDevice[]) => {
     setError(null);
+    setFallback(null);
     setPhase({ kind: 'busy', note: `Checking ${d.name}…` });
     const result = await findWorkingCredentials(d, all, note => setPhase({ kind: 'busy', note }));
     if (!result.creds) {
       setError(explainFailure(d.name || d.model, d.did, result));
+      // The camera answered on this Wi-Fi with the right device id, so P2P
+      // can still reach it even though its local-command service is stuck.
+      if (result.lanIps.length && /^\d+$/.test(d.did)) {
+        setFallback({ ip: result.lanIps[0], token: d.token, deviceId: Number(d.did), model: d.model });
+      }
       setPhase({ kind: 'devices', devices: all });
       return;
     }
@@ -92,6 +109,23 @@ export const CloudLogin: React.FC<{ onFound: (ip: string, token: string) => void
       </View>
 
       {error && <Text style={s.error}>{error}</Text>}
+
+      {fallback && (
+        <Pressable
+          style={s.button}
+          onPress={() => {
+            setOpen(false);
+            onP2POnly(fallback);
+          }}>
+          <Text style={s.buttonText}>Continue with live view only</Text>
+        </Pressable>
+      )}
+      {fallback && (
+        <Text style={s.help}>
+          Live view and pan/tilt use P2P, which doesn't depend on the stuck service. Track, Cruise and
+          status will be unavailable until the camera is restarted.
+        </Text>
+      )}
 
       {phase.kind === 'form' && (
         <>
