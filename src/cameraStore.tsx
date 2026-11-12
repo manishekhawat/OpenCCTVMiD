@@ -56,7 +56,7 @@ export interface CameraState {
   call(method: string, params: unknown[]): Promise<MiioResult | null>;
   nudge(direction: Direction): Promise<boolean>;
   preferredPtz(direction: Direction): string | null;
-  runProbe(includeDestructive?: boolean): Promise<void>;
+  runProbe(includeActions?: boolean): Promise<void>;
   refreshState(): Promise<void>;
   confirmed: Candidate[];
 }
@@ -285,7 +285,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const runProbe = useCallback(
-    async (includeDestructive = false) => {
+    async (includeActions = false) => {
       const dev = device.current;
       if (!dev || probing) return;
 
@@ -299,9 +299,12 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // aiid 2 does before calling it. A factory reset would look exactly
       // like any other unknown action, so the grid stays behind an opt-in.
       const queue = [
-        ...candidateCommands.filter(c => includeDestructive || !c.destructive),
+        // Destructive candidates (sdcard_format) are never swept, under any
+        // option. They used to ride along with the actions opt-in, so
+        // agreeing to "sweep MIoT actions" also sent a format command.
+        ...candidateCommands.filter(c => !c.destructive),
         ...miotPropertyGrid(),
-        ...(includeDestructive ? miotActionGrid() : []),
+        ...(includeActions ? miotActionGrid() : []),
       ];
       setProbing(true);
       setProbeDone(0);

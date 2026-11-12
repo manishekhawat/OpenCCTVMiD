@@ -99,7 +99,7 @@ export const ProbeScreen: React.FC = () => {
   );
 };
 
-const confirmActions = (run: (includeDestructive: boolean) => void) =>
+const confirmActions = (run: (includeActions: boolean) => void) =>
   Alert.alert(
     'Sweep MIoT actions?',
     'This calls every action slot in the grid. Unlisted actions are undocumented, and one of ' +
